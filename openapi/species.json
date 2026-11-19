@@ -1,0 +1,813 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "OMyFish API: Species, forecasts and regulations",
+    "version": "v1"
+  },
+  "servers": [
+    {
+      "url": "https://api.example.com",
+      "description": "API gateway"
+    }
+  ],
+  "paths": {
+    "/api/v1/species/regs/ask": {
+      "post": {
+        "tags": [
+          "regs-controller"
+        ],
+        "operationId": "ask",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AskRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegsAnswer"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species/identify": {
+      "post": {
+        "tags": [
+          "identification-controller"
+        ],
+        "operationId": "identify",
+        "parameters": [
+          {
+            "name": "topK",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 5
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "required": [
+                  "image"
+                ],
+                "type": "object",
+                "properties": {
+                  "image": {
+                    "type": "string",
+                    "format": "binary"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictionResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species": {
+      "get": {
+        "tags": [
+          "species-controller"
+        ],
+        "operationId": "list",
+        "parameters": [
+          {
+            "name": "northAmericanFreshwater",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SpeciesResponse"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species/{scientificName}": {
+      "get": {
+        "tags": [
+          "species-controller"
+        ],
+        "operationId": "get",
+        "parameters": [
+          {
+            "name": "scientificName",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/SpeciesResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species/regs/zones/geojson": {
+      "get": {
+        "tags": [
+          "regs-controller"
+        ],
+        "operationId": "zonesGeoJson",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "object"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species/regs/limits": {
+      "get": {
+        "tags": [
+          "regs-controller"
+        ],
+        "operationId": "limits",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "species",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "general"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegsLimits"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species/regs/consumption": {
+      "get": {
+        "tags": [
+          "regs-controller"
+        ],
+        "operationId": "consumption",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "species",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "general"
+            }
+          },
+          {
+            "name": "sizeCm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/RegsConsumption"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species/regs/consumption/stations": {
+      "get": {
+        "tags": [
+          "regs-controller"
+        ],
+        "operationId": "consumptionStations",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 5
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RegsStation"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species/bite-score/today": {
+      "get": {
+        "tags": [
+          "bite-score-controller"
+        ],
+        "operationId": "today",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "species",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "general"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/BiteForecast"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/species/bite-score/forecast": {
+      "get": {
+        "tags": [
+          "bite-score-controller"
+        ],
+        "operationId": "forecast",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          {
+            "name": "species",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "default": "general"
+            }
+          },
+          {
+            "name": "hours",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int32",
+              "default": 336
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "*/*": {
+                "schema": {
+                  "$ref": "#/components/schemas/BiteForecast"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AskRequest": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          }
+        }
+      },
+      "RegsAnswer": {
+        "type": "object",
+        "properties": {
+          "question": {
+            "type": "string"
+          },
+          "answer": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "disclaimer": {
+            "type": "string"
+          }
+        }
+      },
+      "PredictionItem": {
+        "type": "object",
+        "properties": {
+          "speciesName": {
+            "type": "string"
+          },
+          "scientificName": {
+            "type": "string"
+          },
+          "confidence": {
+            "type": "number",
+            "format": "double"
+          },
+          "rank": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "conservationStatus": {
+            "type": "string"
+          },
+          "habitat": {
+            "type": "string"
+          },
+          "diet": {
+            "type": "string"
+          },
+          "maxSizeCm": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "description": {
+            "type": "string"
+          },
+          "funFact": {
+            "type": "string"
+          }
+        }
+      },
+      "PredictionResponse": {
+        "type": "object",
+        "properties": {
+          "predictions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PredictionItem"
+            }
+          },
+          "uncertain": {
+            "type": "boolean"
+          },
+          "imageKey": {
+            "type": "string"
+          },
+          "isFish": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SpeciesResponse": {
+        "type": "object",
+        "properties": {
+          "scientificName": {
+            "type": "string"
+          },
+          "commonName": {
+            "type": "string"
+          },
+          "family": {
+            "type": "string"
+          },
+          "conservationStatus": {
+            "type": "string"
+          },
+          "habitat": {
+            "type": "string"
+          },
+          "geographicRange": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "northAmericanFreshwater": {
+            "type": "boolean"
+          }
+        }
+      },
+      "RegsLimits": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "zoneName": {
+            "type": "string"
+          },
+          "zoneInfoUrl": {
+            "type": "string"
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RegsSpeciesLimit"
+            }
+          },
+          "disclaimer": {
+            "type": "string"
+          }
+        }
+      },
+      "RegsSpeciesLimit": {
+        "type": "object",
+        "properties": {
+          "species": {
+            "type": "string"
+          },
+          "period": {
+            "type": "string"
+          },
+          "catchLimit": {
+            "type": "string"
+          },
+          "lengthLimit": {
+            "type": "string"
+          },
+          "fishingDevice": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          }
+        }
+      },
+      "RegsConsumption": {
+        "type": "object",
+        "properties": {
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "species": {
+            "type": "string"
+          },
+          "stationName": {
+            "type": "string"
+          },
+          "distanceKm": {
+            "type": "number",
+            "format": "double"
+          },
+          "sizeClass": {
+            "type": "string"
+          },
+          "mealsPerMonth": {
+            "type": "integer",
+            "format": "int32"
+          },
+          "fishingStatus": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "disclaimer": {
+            "type": "string"
+          }
+        }
+      },
+      "RegsStation": {
+        "type": "object",
+        "properties": {
+          "noBqma": {
+            "type": "string"
+          },
+          "hydronyme": {
+            "type": "string"
+          },
+          "latitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "longitude": {
+            "type": "number",
+            "format": "double"
+          },
+          "distanceKm": {
+            "type": "number",
+            "format": "double"
+          }
+        }
+      },
+      "BiteForecast": {
+        "type": "object",
+        "properties": {
+          "species": {
+            "type": "string"
+          },
+          "lat": {
+            "type": "number",
+            "format": "double"
+          },
+          "lon": {
+            "type": "number",
+            "format": "double"
+          },
+          "hourly": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BiteHourlyScore"
+            }
+          },
+          "bestWindows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BiteHourlyScore"
+            }
+          },
+          "majorWindows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimeWindow"
+            }
+          },
+          "minorWindows": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TimeWindow"
+            }
+          },
+          "sunTimes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SunTimes"
+            }
+          },
+          "current": {
+            "$ref": "#/components/schemas/CurrentConditions"
+          }
+        }
+      },
+      "BiteHourlyScore": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "score": {
+            "type": "number",
+            "format": "double"
+          },
+          "breakdown": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "weightedContribution": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "format": "double"
+            }
+          },
+          "timeOfDayMultiplier": {
+            "type": "number",
+            "format": "double"
+          },
+          "safetyFlag": {
+            "type": "string"
+          }
+        }
+      },
+      "CurrentConditions": {
+        "type": "object",
+        "properties": {
+          "time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "precipitationMm": {
+            "type": "number",
+            "format": "double"
+          },
+          "isStorm": {
+            "type": "boolean"
+          },
+          "isHeavyPrecip": {
+            "type": "boolean"
+          }
+        }
+      },
+      "SunTimes": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date"
+          },
+          "sunrise": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "sunset": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "TimeWindow": {
+        "type": "object",
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "end": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,286 @@
+# OMyFish production topology: a single VPS, Docker Compose, Caddy in front.
+#
+#   docker compose --env-file .env -f docker-compose.prod.yml pull
+#   docker compose --env-file .env -f docker-compose.prod.yml up -d
+#
+# Differences from the development stack:
+#   - Only Caddy publishes ports (80/443). Every other container is reachable only on the
+#     internal network: no database, broker or admin UI is exposed to the internet.
+#   - Images are pre-built in CI and pulled by tag; nothing is built on the server.
+#   - Every secret comes from .env and is required (${VAR:?}), so a missing one fails fast.
+#   - Dropped from dev: the Postgres streaming replica (shop-service's read datasource points at
+#     the primary instead), Jaeger, Prometheus/Grafana and the second frontend.
+#   - Object storage is the hosting provider's managed S3-compatible service, not a self-hosted
+#     MinIO container: the services use an S3 client, so only the endpoint and keys change.
+#     Durability and backups of photos become the provider's job.
+#   - Memory caps on every container. The limits sum to ~8 GB, but they're ceilings, not
+#     reservations; steady-state use is well below that.
+
+x-defaults: &defaults
+  restart: unless-stopped
+  networks: [backend]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+x-java: &java
+  <<: *defaults
+  mem_limit: 512m
+  environment: &java-env
+    JAVA_TOOL_OPTIONS: "-XX:MaxRAMPercentage=75"
+  healthcheck:
+    test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/actuator/health"]
+    interval: 15s
+    retries: 5
+    start_period: 60s
+
+networks:
+  backend:
+
+volumes:
+  postgres_data:
+  mongo_data:
+  rabbitmq_data:
+  kafka_data:
+  redis_data:
+  caddy_data:
+
+services:
+
+  # ─── Edge ──────────────────────────────────────────────────────────────────
+
+  caddy:
+    <<: *defaults
+    image: caddy:2.8-alpine
+    mem_limit: 64m
+    ports: ["80:80", "443:443"]
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?}
+      API_DOMAIN: ${API_DOMAIN:?}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data            # TLS certificates, so restarts don't re-issue them
+    depends_on: [api-gateway, frontend]
+
+  # ─── Infrastructure ────────────────────────────────────────────────────────
+
+  postgres:
+    <<: *defaults
+    image: postgis/postgis:16-3.4-alpine
+    mem_limit: 1g
+    environment:
+      POSTGRES_DB: omyfish
+      POSTGRES_USER: omyfish
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+    volumes: [postgres_data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U omyfish"]
+      interval: 10s
+      retries: 5
+
+  mongodb:
+    <<: *defaults
+    image: mongo:7
+    mem_limit: 512m
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: omyfish
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:?}
+    volumes: [mongo_data:/data/db]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      retries: 5
+
+  rabbitmq:
+    <<: *defaults
+    image: rabbitmq:3.13-alpine          # no management plugin in production
+    mem_limit: 384m
+    environment:
+      RABBITMQ_DEFAULT_USER: omyfish
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?}
+    volumes: [rabbitmq_data:/var/lib/rabbitmq]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
+      interval: 15s
+      retries: 5
+
+  kafka:                                 # single-broker KRaft; shop order ledger only
+    <<: *defaults
+    image: apache/kafka:3.8.0
+    mem_limit: 768m
+    environment:
+      KAFKA_HEAP_OPTS: "-Xms256m -Xmx384m"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    volumes: [kafka_data:/var/lib/kafka/data]
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:9092 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  redis:
+    <<: *defaults
+    image: redis:7-alpine
+    mem_limit: 128m
+    command: ["redis-server", "--maxmemory", "96mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes: [redis_data:/data]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      retries: 5
+
+  # ─── AI service (internal only; reached through species-service) ────────────
+
+  ai-service:
+    <<: *defaults
+    image: ${REGISTRY:?}/omyfish-ai:${AI_TAG:?}
+    mem_limit: 2g
+    environment:
+      MODEL_PATH: /checkpoints/best.pt
+      CLASSES_PATH: /checkpoints/classes.json
+      METADATA_PATH: /metadata/fish_info.json
+      VISUALCROSSING_API_KEY: ${VISUALCROSSING_API_KEY:?}
+      GROQ_API_KEY: ${GROQ_API_KEY:?}
+    volumes:
+      - ./models:/checkpoints:ro
+      - ./metadata:/metadata:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      retries: 5
+      start_period: 90s
+
+  # ─── Java services ─────────────────────────────────────────────────────────
+
+  identity-service:
+    <<: *java
+    image: ${REGISTRY:?}/omyfish-identity-service:${APP_TAG:?}
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/omyfish
+      SPRING_DATASOURCE_USERNAME: omyfish
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?}
+      JWT_SECRET: ${JWT_SECRET:?}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?}
+      STRIPE_PRICE_MONTHLY: ${STRIPE_PRICE_MONTHLY:?}
+      STRIPE_PRICE_YEARLY: ${STRIPE_PRICE_YEARLY:?}
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  species-service:
+    <<: *java
+    image: ${REGISTRY:?}/omyfish-species-service:${APP_TAG:?}
+    environment:
+      <<: *java-env
+      SPRING_DATA_MONGODB_URI: mongodb://omyfish:${MONGO_PASSWORD:?}@mongodb:27017/omyfish?authSource=admin
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: omyfish
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?}
+      OMYFISH_AI_SERVICE_URL: http://ai-service:8000
+      MINIO_ENDPOINT: ${S3_ENDPOINT:?}
+      MINIO_ACCESS_KEY: ${S3_ACCESS_KEY:?}
+      MINIO_SECRET_KEY: ${S3_SECRET_KEY:?}
+      SPECIES_METADATA_PATH: /metadata/fish_info.json
+    volumes: [./metadata:/metadata:ro]
+    depends_on:
+      mongodb: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      ai-service: { condition: service_started }
+
+  observation-service:
+    <<: *java
+    image: ${REGISTRY:?}/omyfish-observation-service:${APP_TAG:?}
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/omyfish
+      SPRING_DATASOURCE_USERNAME: omyfish
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: omyfish
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?}
+      MINIO_ENDPOINT: ${S3_ENDPOINT:?}
+      MINIO_ACCESS_KEY: ${S3_ACCESS_KEY:?}
+      MINIO_SECRET_KEY: ${S3_SECRET_KEY:?}
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+
+  notification-service:
+    <<: *java
+    image: ${REGISTRY:?}/omyfish-notification-service:${APP_TAG:?}
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/omyfish
+      SPRING_DATASOURCE_USERNAME: omyfish
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: omyfish
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:?}
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+    depends_on:
+      postgres: { condition: service_healthy }
+      rabbitmq: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+
+  shop-service:
+    <<: *java
+    image: ${REGISTRY:?}/omyfish-shop-service:${APP_TAG:?}
+    environment:
+      <<: *java-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/omyfish
+      SPRING_DATASOURCE_USERNAME: omyfish
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:?}
+      # No replica at launch scale: the read datasource is the primary. Adding a replica later
+      # only changes these three values.
+      SPRING_DATASOURCE_REPLICA_URL: jdbc:postgresql://postgres:5432/omyfish
+      SPRING_DATASOURCE_REPLICA_USERNAME: omyfish
+      SPRING_DATASOURCE_REPLICA_PASSWORD: ${POSTGRES_PASSWORD:?}
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      MINIO_ENDPOINT: ${S3_ENDPOINT:?}
+      MINIO_ACCESS_KEY: ${S3_ACCESS_KEY:?}
+      MINIO_SECRET_KEY: ${S3_SECRET_KEY:?}
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?}
+      STRIPE_SHOP_WEBHOOK_SECRET: ${STRIPE_SHOP_WEBHOOK_SECRET:?}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+
+  api-gateway:
+    <<: *java
+    image: ${REGISTRY:?}/omyfish-api-gateway:${APP_TAG:?}
+    mem_limit: 384m
+    environment:
+      <<: *java-env
+      IDENTITY_SERVICE_URL: http://identity-service:8080
+      SPECIES_SERVICE_URL: http://species-service:8080
+      OBSERVATION_SERVICE_URL: http://observation-service:8080
+      NOTIFICATION_SERVICE_URL: http://notification-service:8080
+      SHOP_SERVICE_URL: http://shop-service:8080
+      JWT_SECRET: ${JWT_SECRET:?}
+    depends_on:
+      identity-service: { condition: service_healthy }
+      species-service: { condition: service_healthy }
+      observation-service: { condition: service_healthy }
+      notification-service: { condition: service_healthy }
+      shop-service: { condition: service_healthy }
+
+  # ─── Web client ────────────────────────────────────────────────────────────
+
+  frontend:
+    <<: *defaults
+    image: ${REGISTRY:?}/omyfish-frontend:${FRONTEND_TAG:?}   # API URL is baked in at image build
+    mem_limit: 256m
+    depends_on:
+      api-gateway: { condition: service_healthy }
