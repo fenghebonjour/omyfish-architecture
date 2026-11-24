@@ -211,6 +211,7 @@ services:
       MINIO_ENDPOINT: ${S3_ENDPOINT:?}
       MINIO_ACCESS_KEY: ${S3_ACCESS_KEY:?}
       MINIO_SECRET_KEY: ${S3_SECRET_KEY:?}
+      OMYFISH_AI_SERVICE_URL: http://ai-service:8000
     depends_on:
       postgres: { condition: service_healthy }
       rabbitmq: { condition: service_healthy }
